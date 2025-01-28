@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot</title>
+
+    <!-- BotUI Styles -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/botui/build/botui.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/botui/build/botui-theme-default.css">
+
+    <!-- Vue.js and BotUI Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/botui/build/botui.min.js"></script>
+
+    <!-- Custom Styles -->
+    <style>
+        /* General Body Styling */
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #a18cd1, #fbc2eb);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Chatbot Container Styling */
+        #botui-container {
+            width: 400px;
+            max-width: 90%; /* Responsive Design for Smaller Screens */
+            height: 600px;
+            max-height: 90%; /* Prevent Overflow */
+            background: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Bot Header */
+        #bot-header {
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            color: white;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        /* BotUI Styling */
+        .botui-app-container {
+            flex-grow: 1;
+            padding: 20px;
+            background-color: #f8f9fa;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            overflow-y: auto;
+        }
+
+        /* Chat Input Styling */
+        .botui-actions-text input {
+            border: 2px solid #2575fc;
+            border-radius: 25px;
+            padding: 10px 15px;
+            width: calc(100% - 30px);
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .botui-actions-text input:focus {
+            border-color: #6a11cb;
+            box-shadow: 0 0 8px rgba(106, 17, 203, 0.3);
+        }
+
+        /* Chat Messages Styling */
+        .botui-message-content {
+            max-width: 80%;
+            font-size: 1rem;
+            line-height: 1.5;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 15px;
+            display: inline-block;
+        }
+
+        .botui-message .from-human .botui-message-content {
+            background: #6a11cb;
+            color: white;
+            align-self: flex-end;
+        }
+
+        .botui-message .from-bot .botui-message-content {
+            background: #f1f1f1;
+            color: #333;
+        }
+
+        /* Smooth Scroll for Overflow */
+        .botui-app-container {
+            scrollbar-width: thin; /* Firefox */
+            scrollbar-color: #6a11cb #f8f9fa;
+        }
+
+        .botui-app-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .botui-app-container::-webkit-scrollbar-thumb {
+            background: #6a11cb;
+            border-radius: 10px;
+        }
+
+        .botui-app-container::-webkit-scrollbar-track {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <!-- Chatbot UI Container -->
+    <div id="botui-container">
+        <div id="bot-header">Chatbot Assistant</div>
+        <div class="botui-app-container" id="botui-app">
+            <bot-ui></bot-ui>
+        </div>
+    </div>
+
+    <script>
+        // Initialize BotUI
+        const botui = new BotUI("botui-app");
+
+        /**
+         * Sends the user's message to the bot and fetches a response.
+         * @param {string} message - The user's message.
+         */
+        function sendMessage(message) {
+            fetchBotResponse(message);
+        }
+
+        /**
+         * Fetches the bot's response from the backend.
+         * @param {string} userMessage - The user's message.
+         */
+        function fetchBotResponse(userMessage) {
+            fetch('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: userMessage })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const responseContent = data.response || "Sorry, I cannot help you with that.";
+                botui.message.add({
+                    content: responseContent,
+                    delay: 500
+                }).then(restartChat);
+            })
+            .catch(() => {
+                botui.message.add({
+                    content: "Error connecting to the server.",
+                    delay: 500
+                }).then(restartChat);
+            });
+        }
+
+        /**
+         * Restarts the chat by providing a text input to the user.
+         */
+        function restartChat() {
+            botui.action.text({
+                action: {
+                    placeholder: 'Type your message...'
+                }
+            }).then(res => sendMessage(res.value));
+        }
+
+        /**
+         * Checks if the user's message contains a Taylor Swift reference.
+         * @param {string} userMessage - The user's message.
+         * @returns {boolean} - True if a Taylor Swift reference is found.
+         */
+        function checkTaylorSwiftReference(userMessage) {
+            const swiftKeywords = ["taylor swift", "lover", "midnights", "reputation"];
+            return swiftKeywords.some(keyword => userMessage.toLowerCase().includes(keyword));
+        }
+
+        /**
+         * Initializes the chatbot interaction.
+         */
+        function startChatbot() {
+            botui.message.add({
+                content: 'Hello, how can I assist you?',
+                delay: 500
+            }).then(() => {
+                botui.action.text({
+                    action: {
+                        placeholder: 'Type your message...'
+                    }
+                }).then(res => {
+                    const userMessage = res.value;
+
+                    if (checkTaylorSwiftReference(userMessage)) {
+                        botui.message.add({
+                            content: "Are you ready for it? 🎶 I love her music too!",
+                            delay: 500
+                        }).then(restartChat);
+                    } else {
+                        sendMessage(userMessage);
+                    }
+                });
+            });
+        }
+
+        // Start the chatbot
+        startChatbot();
+    </script>
+</body>
+</html>
