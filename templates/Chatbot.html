@@ -31,16 +31,15 @@
         /* Chatbot Container Styling */
         #botui-container {
             width: 400px;
-            max-width: 90%; /* Responsive Design for Smaller Screens */
+            max-width: 90%;
             height: 600px;
-            max-height: 90%; /* Prevent Overflow */
             background: #ffffff;
             border-radius: 15px;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            overflow: hidden;
         }
 
         /* Bot Header */
@@ -54,15 +53,31 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
-        /* BotUI Styling */
+        /* BotUI Chat Window */
         .botui-app-container {
             flex-grow: 1;
             padding: 20px;
             background-color: #f8f9fa;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
-            overflow-y: auto;
+            justify-content: flex-start;
+            overflow-y: auto; /* 🔥 Enable scrolling */
+            max-height: 500px;
+            scrollbar-width: thin;
+            scrollbar-color: #6a11cb #f8f9fa;
+        }
+
+        .botui-app-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .botui-app-container::-webkit-scrollbar-thumb {
+            background: #6a11cb;
+            border-radius: 10px;
+        }
+
+        .botui-app-container::-webkit-scrollbar-track {
+            background: #f8f9fa;
         }
 
         /* Chat Input Styling */
@@ -102,25 +117,6 @@
             background: #f1f1f1;
             color: #333;
         }
-
-        /* Smooth Scroll for Overflow */
-        .botui-app-container {
-            scrollbar-width: thin; /* Firefox */
-            scrollbar-color: #6a11cb #f8f9fa;
-        }
-
-        .botui-app-container::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .botui-app-container::-webkit-scrollbar-thumb {
-            background: #6a11cb;
-            border-radius: 10px;
-        }
-
-        .botui-app-container::-webkit-scrollbar-track {
-            background: #f8f9fa;
-        }
     </style>
 </head>
 <body>
@@ -156,18 +152,37 @@
             })
             .then(response => response.json())
             .then(data => {
-                const responseContent = data.response || "Sorry, I cannot help you with that.";
+                let responseContent = data.results && data.results.length > 0 
+                                      ? data.results[0] 
+                                      : "Sorry, I cannot help you with that.";
+
                 botui.message.add({
                     content: responseContent,
                     delay: 500
-                }).then(restartChat);
+                }).then(() => {
+                    scrollToBottom();  // 🔥 Scrolls after new message
+                    restartChat();
+                });
             })
             .catch(() => {
                 botui.message.add({
                     content: "Error connecting to the server.",
                     delay: 500
-                }).then(restartChat);
+                }).then(() => {
+                    scrollToBottom();  // 🔥 Scrolls after an error message
+                    restartChat();
+                });
             });
+        }
+
+        /**
+         * 🔥 Forces chat to scroll down when new messages are added
+         */
+        function scrollToBottom() {
+            setTimeout(() => {
+                let container = document.querySelector('.botui-app-container');
+                container.scrollTop = container.scrollHeight;
+            }, 100);
         }
 
         /**

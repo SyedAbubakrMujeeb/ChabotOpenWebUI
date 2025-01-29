@@ -1,115 +1,100 @@
 from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS  # Add CORS support
 import os
-import fitz  # PyMuPDF for PDF text extraction
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from ollama import chat, ChatResponse
+import fitz  # PyMuPDF
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
 
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend interaction
 
+# Define folders
 UPLOAD_FOLDER = "uploads"
+INDEX_FOLDER = "faiss_index"
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-pdf_texts = {}
+# Set HuggingFace API token (use environment variable for security)
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "YOUR_HF_API_TOKEN"
 
-# Load PDF data
-def load_pdf_data():
-    global pdf_texts
-    for filename in os.listdir(UPLOAD_FOLDER):
-        if filename.endswith(".pdf"):
-            pdf_path = os.path.join(UPLOAD_FOLDER, filename)
-            pdf_texts[filename] = extract_text_from_pdf(pdf_path)
+# Initialize global variables
+faiss_index = None
+embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-# Extract text from PDF
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    with fitz.open(pdf_path) as pdf:
-        for page in pdf:
-            text += f"Page {page.number + 1}:\n" + page.get_text() + "\n"
-    return text
+def process_pdf_files():
+    """Processes all PDFs in UPLOAD_FOLDER and creates a FAISS index."""
+    global faiss_index
+    
+    pdf_texts = []
+    files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(".pdf")]
 
-# Check if query is relevant to the context
-def is_query_in_context(query, context):
-    query_keywords = set(query.lower().split())
-    context_keywords = set(context.lower().split())
-    return bool(query_keywords & context_keywords)
+    if not files:
+        print("No PDFs found in the upload folder.")
+        return False
 
-# Check if answer is based on the context
-def is_answer_in_context(answer, context):
-    answer_keywords = set(answer.lower().split())
-    context_keywords = set(context.lower().split())
-    return bool(answer_keywords & context_keywords)
+    # Extract text from all PDFs
+    for filename in files:
+        pdf_path = os.path.join(UPLOAD_FOLDER, filename)
+        doc = fitz.open(pdf_path)
+        text = "\n".join([page.get_text() for page in doc])
+        if text:
+            pdf_texts.append(text)
 
-# Query chatbot
-def query_chatbot(user_query, model_name="llama3.2"):
-    try:
-        system_messages = [
-            {
-                "role": "system",
-                "content": f"PDF Name: {filename}\n\nText:\n{pdf_text}",
-            }
-            for filename, pdf_text in pdf_texts.items()
-        ]
-        messages = system_messages + [{"role": "user", "content": user_query}]
-        response: ChatResponse = chat(model=model_name, messages=messages)
-        return response.message.content
-    except Exception as e:
-        raise RuntimeError(f"Error querying chatbot: {str(e)}")
+    if not pdf_texts:
+        print("No text extracted from PDFs.")
+        return False
+
+    # Split text into chunks
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    text_chunks = text_splitter.split_text("".join(pdf_texts))
+
+    if not text_chunks:
+        print("Failed to split text into chunks.")
+        return False
+
+    # Create FAISS index and save it
+    faiss_index = FAISS.from_texts(text_chunks, embedding)
+    faiss_index.save_local(INDEX_FOLDER)
+    print("FAISS index successfully created and saved.")
+    return True
 
 @app.route("/")
 def index():
+    """Render the main HTML page."""
     return render_template("Chatbot.html")
 
+@app.route("/process", methods=["POST"])
+def process_pdfs():
+    """Processes PDFs automatically from UPLOAD_FOLDER."""
+    success = process_pdf_files()
+    if success:
+        return jsonify({"message": "PDFs processed and FAISS index created."}), 200
+    else:
+        return jsonify({"error": "No valid PDFs found or text extraction failed."}), 400
+
 @app.route("/query", methods=["POST"])
-def query_chatbot_route():
-    try:
-        # Get the user query
-        user_query = request.json.get("query")
-        if not user_query:
-            return jsonify({"error": "No query provided"}), 400
+def query_index():
+    """Handles user queries against the FAISS index."""
+    global faiss_index
 
-        if not pdf_texts:
-            return jsonify({"error": "No PDF data available to answer your query."}), 400
+    # Load FAISS index if not already loaded
+    if faiss_index is None:
+        try:
+            faiss_index = FAISS.load_local(INDEX_FOLDER, embedding)
+        except:
+            return jsonify({"error": "Index not found. Process PDFs first."}), 400
 
-        # Combine and split PDF content into meaningful chunks
-        context = "\n\n".join(
-            [f"PDF Name: {filename}\n\nText:\n{pdf_text}" for filename, pdf_text in pdf_texts.items()]
-        )
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, separators=["\n\n", ".", " "])
-        context_chunks = text_splitter.split_text(context)
+    user_query = request.json.get("query")
+    if not user_query:
+        return jsonify({"error": "No query provided."}), 400
 
-        # Identify relevant chunks
-        relevant_chunks = [chunk for chunk in context_chunks if is_query_in_context(user_query, chunk)]
-        context_to_use = "\n\n".join(relevant_chunks) if relevant_chunks else context
-
-        # System message
-        system_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a strict assistant. Only answer questions using the following PDF data. "
-                    "If the answer cannot be found in the PDF, respond only with: "
-                    "'Sorry, I cannot help you with that.'\n\n"
-                    f"{context_to_use}"
-                )
-            }
-        ]
-        messages = system_messages + [{"role": "user", "content": user_query}]
-
-        # Query the chatbot
-        response: ChatResponse = chat(model="llama3.2", messages=messages)
-        bot_response = response.message.content.strip()
-
-        # Validate response relevance
-        if not is_answer_in_context(bot_response, context_to_use):
-            bot_response = "Sorry, I cannot help you with that."
-
-        return jsonify({"response": bot_response})
-
-    except Exception as e:
-        return jsonify({"error": f"Error querying chatbot: {str(e)}"}), 500
+    # Perform similarity search
+    results = faiss_index.similarity_search(user_query, k=2)
+    return jsonify({"results": [result.page_content for result in results]}), 200
 
 if __name__ == "__main__":
-    load_pdf_data()  # Load PDF data before starting the app
+    # Automatically process PDFs at startup
+    print("Processing PDFs at startup...")
+    process_pdf_files()
+    
     app.run(debug=True)
