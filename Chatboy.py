@@ -4,6 +4,7 @@ import fitz  # PyMuPDF
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
+from transformers import pipeline  # Hugging Face for text summarization or cleanup
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -15,11 +16,14 @@ INDEX_FOLDER = "faiss_index"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Set HuggingFace API token (use environment variable for security)
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = "YOUR_HF_API_TOKEN"
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = "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"
 
 # Initialize global variables
 faiss_index = None
 embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# Load the summarization or cleanup model from Hugging Face
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
 def process_pdf_files():
     """Processes all PDFs in UPLOAD_FOLDER and creates a FAISS index."""
@@ -44,8 +48,8 @@ def process_pdf_files():
         print("No text extracted from PDFs.")
         return False
 
-    # Split text into chunks
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    # Split text into chunks with smaller size and more overlap
+    text_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=200)
     text_chunks = text_splitter.split_text("".join(pdf_texts))
 
     if not text_chunks:
@@ -57,6 +61,12 @@ def process_pdf_files():
     faiss_index.save_local(INDEX_FOLDER)
     print("FAISS index successfully created and saved.")
     return True
+
+def clean_chunk(chunk):
+    """Clean up chunk to make it more presentable, using a model for summarization or refinement."""
+    # Using summarizer to clean up or refine the chunk
+    cleaned = summarizer(chunk, max_length=300, min_length=100, do_sample=False)
+    return cleaned[0]['summary_text']
 
 @app.route("/")
 def index():
@@ -88,9 +98,14 @@ def query_index():
     if not user_query:
         return jsonify({"error": "No query provided."}), 400
 
-    # Perform similarity search
-    results = faiss_index.similarity_search(user_query, k=2)
-    return jsonify({"results": [result.page_content for result in results]}), 200
+    # Perform similarity search with k=1 for more focused answers
+    results = faiss_index.similarity_search(user_query, k=1)
+
+    # Clean up the result by applying text cleanup
+    cleaned_results = [clean_chunk(result.page_content) for result in results]
+
+    # Return the cleaned and formatted result
+    return jsonify({"results": cleaned_results}), 200
 
 if __name__ == "__main__":
     # Automatically process PDFs at startup
