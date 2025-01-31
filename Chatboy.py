@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify, render_template
 import os
 import fitz  # PyMuPDF
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 from transformers import pipeline  # Hugging Face for text summarization or cleanup
 
 # Initialize Flask app
